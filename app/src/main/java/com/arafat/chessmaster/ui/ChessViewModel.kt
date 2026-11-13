@@ -123,7 +123,7 @@ class ChessViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------- settings ----------
 
-    fun setPalette(i: Int) {
+    fun changePalette(i: Int) {
         palette = i
         store.palette = i
     }

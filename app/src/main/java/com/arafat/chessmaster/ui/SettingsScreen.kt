@@ -48,7 +48,7 @@ fun SettingsScreen(vm: ChessViewModel) {
                         .clip(RoundedCornerShape(14.dp))
                         .background(if (sel) p.primary.copy(alpha = 0.18f) else p.surface2)
                         .border(1.dp, if (sel) p.primary else p.surface2, RoundedCornerShape(14.dp))
-                        .clickable { vm.setPalette(i) }
+                        .clickable { vm.changePalette(i) }
                         .padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
