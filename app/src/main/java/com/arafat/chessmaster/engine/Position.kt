@@ -294,6 +294,35 @@ class Position {
         return sb.toString()
     }
 
+    fun toFen(): String {
+        val sb = StringBuilder()
+        for (r in 0 until 8) {
+            var empty = 0
+            for (c in 0 until 8) {
+                val x = b[r * 8 + c]
+                if (x == 0) {
+                    empty++
+                } else {
+                    if (empty > 0) { sb.append(empty); empty = 0 }
+                    val ch = "?pnbrqk"[abs(x)]
+                    sb.append(if (x > 0) ch.uppercaseChar() else ch)
+                }
+            }
+            if (empty > 0) sb.append(empty)
+            if (r < 7) sb.append('/')
+        }
+        sb.append(' ').append(if (white) 'w' else 'b').append(' ')
+        var cs = ""
+        if ((castle and 1) != 0) cs += "K"
+        if ((castle and 2) != 0) cs += "Q"
+        if ((castle and 4) != 0) cs += "k"
+        if ((castle and 8) != 0) cs += "q"
+        sb.append(if (cs.isEmpty()) "-" else cs)
+        sb.append(' ').append(if (ep >= 0) sqName(ep) else "-")
+        sb.append(' ').append(half).append(' ').append(plies / 2 + 1)
+        return sb.toString()
+    }
+
     companion object {
         const val START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
@@ -431,3 +460,11 @@ fun see(pos: Position, m: Int): Int {
     }
     return g[0]
 }
+
+fun moveToUci(m: Int): String {
+    val pr = (m shr 12) and 7
+    val extra = if (pr != 0) "?pnbrqk"[pr].toString() else ""
+    return sqName(m and 63) + sqName((m shr 6) and 63) + extra
+}
+
+fun uciToMove(pos: Position, uci: String): Int? = pos.legalMoves().firstOrNull { moveToUci(it) == uci }

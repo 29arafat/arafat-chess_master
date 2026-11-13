@@ -1,5 +1,6 @@
 package com.arafat.chessmaster.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,13 +23,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arafat.chessmaster.engine.Position
 import kotlin.math.abs
+import kotlin.math.sqrt
 
 fun glyph(type: Int): String {
     val ch = when (type) {
@@ -52,18 +56,21 @@ fun BoardView(
     hint: Int,
     onTap: (Int) -> Unit
 ) {
-    val light = Color(0xFFE9E4D4)
-    val darkSq = Color(0xFF6F8FAF)
+    val pal = LocalPalette.current
+    val light = pal.lightSq
+    val darkSq = pal.darkSq
     val lf = if (lastMove >= 0) lastMove and 63 else -1
     val lt = if (lastMove >= 0) (lastMove shr 6) and 63 else -1
     val hf = if (hint >= 0) hint and 63 else -1
     val ht = if (hint >= 0) (hint shr 6) and 63 else -1
+    val frame = RoundedCornerShape(14.dp)
 
     BoxWithConstraints(
         Modifier
             .fillMaxWidth()
             .aspectRatio(1f)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(frame)
+            .border(2.dp, pal.primary.copy(alpha = 0.55f), frame)
     ) {
         val cell = maxWidth / 8
         val fs = with(LocalDensity.current) { (cell.toPx() * 0.72f).toSp() }
@@ -87,11 +94,11 @@ fun BoardView(
                             if (sq == lf || sq == lt) {
                                 Box(Modifier.fillMaxSize().background(Color(0x66F2C14E)))
                             }
+                            if (sq == hf || sq == ht) {
+                                Box(Modifier.fillMaxSize().background(Color(0x5522C55E)))
+                            }
                             if (sq == selected) {
                                 Box(Modifier.fillMaxSize().background(Color(0x99F2C14E)))
-                            }
-                            if (sq == hf || sq == ht) {
-                                Box(Modifier.fillMaxSize().border(3.dp, Color(0xFF22C55E)))
                             }
                             if (piece != 0) {
                                 val white = piece > 0
@@ -130,7 +137,7 @@ fun BoardView(
                                     "${8 - r}",
                                     fontSize = 9.sp,
                                     color = if (isLight) darkSq else light,
-                                    modifier = Modifier.align(Alignment.TopStart).padding1()
+                                    modifier = Modifier.align(Alignment.TopStart).padding(horizontal = 2.dp, vertical = 1.dp)
                                 )
                             }
                             if (row == 7) {
@@ -138,7 +145,7 @@ fun BoardView(
                                     "${'a' + c}",
                                     fontSize = 9.sp,
                                     color = if (isLight) darkSq else light,
-                                    modifier = Modifier.align(Alignment.BottomEnd).padding1()
+                                    modifier = Modifier.align(Alignment.BottomEnd).padding(horizontal = 2.dp, vertical = 1.dp)
                                 )
                             }
                         }
@@ -146,7 +153,37 @@ fun BoardView(
                 }
             }
         }
+        // suggestion arrow
+        Canvas(Modifier.fillMaxSize()) {
+            if (hf >= 0 && ht >= 0) {
+                val cs = size.width / 8f
+                fun center(sq: Int): Offset {
+                    val r = sq / 8
+                    val c = sq % 8
+                    val row = if (whiteBottom) r else 7 - r
+                    val col = if (whiteBottom) c else 7 - c
+                    return Offset((col + 0.5f) * cs, (row + 0.5f) * cs)
+                }
+                val a = center(hf)
+                val b = center(ht)
+                val dx = b.x - a.x
+                val dy = b.y - a.y
+                val len = sqrt(dx * dx + dy * dy)
+                if (len > 1f) {
+                    val ux = dx / len
+                    val uy = dy / len
+                    val head = cs * 0.42f
+                    val color = Color(0xCC22C55E)
+                    val end = Offset(b.x - ux * head * 0.6f, b.y - uy * head * 0.6f)
+                    drawLine(color, a, end, strokeWidth = cs * 0.16f, cap = StrokeCap.Round)
+                    val path = Path()
+                    path.moveTo(b.x, b.y)
+                    path.lineTo(b.x - ux * head - uy * head * 0.55f, b.y - uy * head + ux * head * 0.55f)
+                    path.lineTo(b.x - ux * head + uy * head * 0.55f, b.y - uy * head - ux * head * 0.55f)
+                    path.close()
+                    drawPath(path, color)
+                }
+            }
+        }
     }
 }
-
-private fun Modifier.padding1(): Modifier = this.then(Modifier.padding(horizontal = 2.dp, vertical = 1.dp))

@@ -10,8 +10,21 @@ data class Candidate(
     val cp: Int,
     val scoreText: String,
     val pvSan: String,
-    val tags: List<String>
-)
+    val tags: List<String>,
+    val pv: List<Int> = emptyList(),
+    val why: List<String> = emptyList(),
+    val longTerm: List<String> = emptyList()
+) {
+    fun note(): String {
+        val sb = StringBuilder()
+        if (why.isNotEmpty()) sb.append("কেন: ").append(why.joinToString(" "))
+        if (longTerm.isNotEmpty()) {
+            if (sb.isNotEmpty()) sb.append("\n")
+            sb.append("দীর্ঘমেয়াদে: ").append(longTerm.joinToString(" "))
+        }
+        return sb.toString()
+    }
+}
 
 data class Analysis(
     val candidates: List<Candidate>,
@@ -21,7 +34,9 @@ data class Analysis(
     val king: List<String>,
     val plan: String,
     val depth: Int,
-    val whiteCp: Int
+    val whiteCp: Int,
+    val enemyNote: String? = null,
+    val engine: String = ""
 )
 
 object Analyzer {
@@ -175,7 +190,7 @@ object Analyzer {
         return res
     }
 
-    private fun tagsFor(pos: Position, m: Int): List<String> {
+    fun tagsFor(pos: Position, m: Int): List<String> {
         val tags = ArrayList<String>()
         val f = m and 63
         val t = (m shr 6) and 63
@@ -352,32 +367,134 @@ object Analyzer {
         return res
     }
 
+    // ---------- Stockfish-based helpers ----------
+
+    private fun toLine(pos: Position, el: EngineLine): Line? {
+        val p = pos.copy()
+        val mvs = ArrayList<Int>()
+        for (u in el.pv) {
+            val m = uciToMove(p, u) ?: break
+            mvs.add(m)
+            p.make(m)
+        }
+        if (mvs.isEmpty()) return null
+        return Line(mvs[0], el.cp, el.depth, mvs)
+    }
+
+    private fun findTrapsSf(pos: Position, sf: StockfishEngine, bestCp: Int, lastEnemy: Int, cancelled: () -> Boolean): List<String> {
+        val res = ArrayList<String>()
+        val fen = pos.toFen()
+        val caps = pos.legalMoves()
+            .filter { pos.b[(it shr 6) and 63] != 0 }
+            .map { it to see(pos, it) }
+            .filter { it.second >= 100 }
+            .sortedByDescending { it.second }
+            .take(3)
+        for ((m, _) in caps) {
+            if (cancelled()) break
+            val l = sf.analyze(fen, 600, 1, moveToUci(m), cancelled, null).firstOrNull() ?: continue
+            if (l.cp < bestCp - 150) {
+                val t = (m shr 6) and 63
+                val victim = abs(pos.b[t])
+                val lastTo = if (lastEnemy >= 0) (lastEnemy shr 6) and 63 else -1
+                val extra = if (t == lastTo) " (শত্রুর শেষ চালটাই ফাঁদ!)" else ""
+                res.add("ফাঁদ! ${sanSafe(pos, m)} দিয়ে ${NAME[victim]} ধরা লোভনীয়, কিন্তু গভীর হিসাবে ক্ষতি (${scoreText(l.cp)}) — ধরবেন না$extra")
+            }
+        }
+        return res
+    }
+
+    /** Does our best move set a trap for the enemy (a tempting capture that loses for him)? */
+    private fun trapWeSet(pos: Position, best: Candidate, sf: StockfishEngine, cancelled: () -> Boolean): String? {
+        val np = pos.copy()
+        np.make(best.move)
+        val caps = np.legalMoves()
+            .filter { np.b[(it shr 6) and 63] != 0 }
+            .map { it to see(np, it) }
+            .filter { it.second >= 100 }
+            .take(2)
+        if (caps.isEmpty() || cancelled()) return null
+        val fen = np.toFen()
+        val base = sf.analyze(fen, 500, 1, null, cancelled, null).firstOrNull() ?: return null
+        for ((m, _) in caps) {
+            if (cancelled()) return null
+            val l = sf.analyze(fen, 500, 1, moveToUci(m), cancelled, null).firstOrNull() ?: continue
+            if (l.cp < base.cp - 150) {
+                val victim = abs(np.b[(m shr 6) and 63])
+                return "ফাঁদ বসানো: ${best.san} খেললে শত্রু লোভে ${NAME[victim]} ধরলে (${sanSafe(np, m)}) নিজেই ক্ষতিতে পড়বে।"
+            }
+        }
+        return null
+    }
+
     // ---------- main entry ----------
 
-    fun analyze(pos: Position, lastEnemy: Int, totalMs: Long, plyCount: Int, cancelled: () -> Boolean): Analysis {
-        val s = Search(pos.copy())
-        s.cancelCheck = cancelled
-        val lines = s.multiPv(3, totalMs, 14)
-        val cands = lines.map { l ->
+    fun analyze(
+        pos: Position,
+        lastEnemy: Int,
+        prev: Position?,
+        totalMs: Long,
+        plyCount: Int,
+        sf: StockfishEngine?,
+        cancelled: () -> Boolean,
+        onProgress: (Int, Int) -> Unit
+    ): Analysis {
+        var lines: List<Line> = emptyList()
+        var search: Search? = null
+        var engineName = "ইনবিল্ট ইঞ্জিন"
+        if (sf != null && sf.isAlive()) {
+            val el = sf.analyze(pos.toFen(), totalMs, 3, null, cancelled, onProgress)
+            lines = el.mapNotNull { toLine(pos, it) }
+            if (lines.isNotEmpty()) engineName = sf.version
+        }
+        if (lines.isEmpty() && !cancelled()) {
+            val s = Search(pos.copy())
+            s.cancelCheck = cancelled
+            search = s
+            lines = s.multiPv(3, minOf(totalMs, 15000L), 14)
+            engineName = "ইনবিল্ট ইঞ্জিন"
+        }
+        val base = lines.map { l ->
             Candidate(
                 move = l.move,
                 san = san(pos, l.move),
                 fromTo = fromTo(l.move),
                 cp = l.score,
                 scoreText = scoreText(l.score),
-                pvSan = pvSan(pos, l.pv, 6),
-                tags = tagsFor(pos, l.move)
+                pvSan = pvSan(pos, l.pv, 8),
+                tags = tagsFor(pos, l.move),
+                pv = l.pv
             )
+        }
+        val cands = base.mapIndexed { i, c ->
+            val why = ArrayList<String>(Explainer.reasons(pos, c.move, true))
+            if (i == 0 && base.size > 1) {
+                val d = c.cp - base[1].cp
+                if (abs(c.cp) < MATE - 100) {
+                    if (d >= 100) why.add("পরের সেরা চালের চেয়ে প্রায় ${String.format(Locale.US, "%.1f", d / 100.0)} বোড়ে ভালো — অন্য চালে অবস্থান বা ম্যাটেরিয়াল হারাতে পারেন।")
+                    else if (d < 30) why.add("কাছাকাছি মানের একাধিক ভালো চাল আছে — নিচের বিকল্পগুলোও চলবে।")
+                }
+            }
+            c.copy(why = why, longTerm = Explainer.longTerm(pos, c.pv, c.cp))
         }
         val bestCp = cands.firstOrNull()?.cp ?: 0
         val threats = enemyThreats(pos)
-        val traps = if (cands.isNotEmpty() && !cancelled()) findTraps(pos, s, bestCp, lastEnemy, cancelled) else emptyList()
+        val traps: List<String> = when {
+            cands.isEmpty() || cancelled() -> emptyList()
+            sf != null && sf.isAlive() && search == null -> findTrapsSf(pos, sf, bestCp, lastEnemy, cancelled)
+            search != null -> findTraps(pos, search, bestCp, lastEnemy, cancelled)
+            else -> emptyList()
+        }
 
         val attacks = ArrayList<String>()
         for (c in cands) for (tg in c.tags) {
             if (tg.startsWith("ফর্ক") || tg.startsWith("পিন") || tg.startsWith("চেক") ||
                 tg.startsWith("ডিসকভার্ড") || tg.startsWith("প্রোমোশন")
             ) attacks.add("${c.san}: $tg")
+        }
+        if (sf != null && sf.isAlive() && search == null && cands.isNotEmpty() && !cancelled()) {
+            val tw = trapWeSet(pos, cands[0], sf, cancelled)
+            if (tw != null) attacks.add(0, tw)
         }
         if (bestCp > MATE - 100) attacks.add(0, "ফোর্সড মেট পাওয়া গেছে — ${scoreText(bestCp)}")
         if (cands.isNotEmpty() && cands[0].pvSan.isNotEmpty()) attacks.add("পরিকল্পিত লাইন: ${cands[0].pvSan}")
@@ -393,6 +510,10 @@ object Analyzer {
         }
         val whiteCp = if (pos.white) bestCp else -bestCp
         val depth = lines.firstOrNull()?.depth ?: 0
-        return Analysis(cands, threats, traps, attacks.distinct().take(6), kingAdvice(pos, cands.firstOrNull()), plan, depth, whiteCp)
+        val note = if (prev != null && lastEnemy >= 0) Explainer.enemyNote(prev, lastEnemy).ifEmpty { null } else null
+        return Analysis(
+            cands, threats, traps, attacks.distinct().take(7),
+            kingAdvice(pos, cands.firstOrNull()), plan, depth, whiteCp, note, engineName
+        )
     }
 }
