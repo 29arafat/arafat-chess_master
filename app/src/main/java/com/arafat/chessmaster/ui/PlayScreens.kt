@@ -157,22 +157,53 @@ fun GameScreen(vm: ChessViewModel) {
         }
         Spacer(Modifier.height(8.dp))
 
-        val banner = vm.status
-            ?: if (myTurn) "✅ আপনার চাল — সাজেশন নিচে দেখুন"
-            else "⏳ শত্রুর চাল — শত্রু যে ঘুঁটি চালালো সেটায় ট্যাপ করে গন্তব্য ঘরে ট্যাপ করুন"
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(if (vm.status != null) p.primary else p.surface2)
-                .padding(10.dp)
-        ) {
-            Text(
-                banner,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp,
-                color = if (vm.status != null) p.onPrimary else p.text
-            )
+        if (vm.status == null && myTurn && best != null) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(p.surface2)
+                    .padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "বেস্ট মুভ  " + best.fromTo.replace("→", "➡️"),
+                    color = p.text,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(Color(0xFF22C55E))
+                        .clickable { vm.playCandidate(0) }
+                        .padding(horizontal = 18.dp, vertical = 10.dp)
+                ) {
+                    Text("▶ এক্সিকিউট", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+            }
+        } else {
+            val banner = vm.status
+                ?: if (myTurn) {
+                    if (vm.thinking) "⏳ ইঞ্জিন গভীর হিসাব করছে…" else "✅ আপনার চাল"
+                } else {
+                    "⏳ শত্রুর চাল — শত্রু যে ঘুঁটি চালালো সেটায় ট্যাপ করে গন্তব্য ঘরে ট্যাপ করুন"
+                }
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(if (vm.status != null) p.primary else p.surface2)
+                    .padding(10.dp)
+            ) {
+                Text(
+                    banner,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    color = if (vm.status != null) p.onPrimary else p.text
+                )
+            }
         }
         Spacer(Modifier.height(8.dp))
 

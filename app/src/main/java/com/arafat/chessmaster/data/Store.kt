@@ -58,6 +58,11 @@ class Store(ctx: Context) {
         get() = prefs.getInt("palette", 0)
         set(v) { prefs.edit().putInt("palette", v).apply() }
 
+    /** 0 = Stockfish, 1 = Arafat engine (own) */
+    var engine: Int
+        get() = prefs.getInt("engine", 0)
+        set(v) { prefs.edit().putInt("engine", v).apply() }
+
     private fun movesToJson(moves: List<MoveRec>): JSONArray {
         val arr = JSONArray()
         for (m in moves) {

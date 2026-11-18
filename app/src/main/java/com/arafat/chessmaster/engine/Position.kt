@@ -16,6 +16,22 @@ private val CM: IntArray = IntArray(64) { 15 }.also {
     it[4] = 3; it[7] = 11; it[0] = 7
 }
 
+
+private object Zob {
+    val piece = Array(13) { LongArray(64) }
+    val castle = LongArray(16)
+    val ep = LongArray(8)
+    var side = 0L
+
+    init {
+        val r = java.util.Random(0x5DEECE66DL)
+        for (i in 0 until 13) for (j in 0 until 64) piece[i][j] = r.nextLong()
+        for (i in 0 until 16) castle[i] = r.nextLong()
+        for (i in 0 until 8) ep[i] = r.nextLong()
+        side = r.nextLong()
+    }
+}
+
 fun mv(f: Int, t: Int, pr: Int = 0): Int = f or (t shl 6) or (pr shl 12)
 fun sqName(s: Int): String = "${'a' + (s % 8)}${8 - (s / 8)}"
 fun sqFromName(n: String): Int = (n[0] - 'a') + (8 - (n[1] - '0')) * 8
@@ -28,6 +44,8 @@ class Position {
     var half = 0
     var plies = 0
     val kp = IntArray(2) // king squares: [0] white, [1] black
+    var hash = 0L
+    private val hashH = LongArray(2048)
 
     private val capH = IntArray(2048)
     private val castleH = IntArray(2048)
@@ -40,6 +58,7 @@ class Position {
         System.arraycopy(b, 0, p.b, 0, 64)
         p.white = white; p.castle = castle; p.ep = ep; p.half = half; p.plies = plies
         p.kp[0] = kp[0]; p.kp[1] = kp[1]
+        p.hash = hash
         return p
     }
 
@@ -199,6 +218,18 @@ class Position {
         return n
     }
 
+    fun computeHash(): Long {
+        var h = 0L
+        for (i in 0 until 64) {
+            val x = b[i]
+            if (x != 0) h = h xor Zob.piece[x + 6][i]
+        }
+        if (!white) h = h xor Zob.side
+        h = h xor Zob.castle[castle]
+        if (ep >= 0) h = h xor Zob.ep[ep % 8]
+        return h
+    }
+
     fun make(m: Int) {
         val f = m and 63
         val t = (m shr 6) and 63
@@ -206,26 +237,43 @@ class Position {
         val p = b[f]
         val type = abs(p)
         val us = if (p > 0) 1 else -1
+        hashH[n] = hash
         capH[n] = b[t]; castleH[n] = castle; epH[n] = ep; halfH[n] = half; n++
+        var h = hash xor Zob.piece[p + 6][f]
+        if (b[t] != 0) h = h xor Zob.piece[b[t] + 6][t]
         var resetHalf = b[t] != 0 || type == 1
         if (type == 1 && t == ep && b[t] == 0 && f % 8 != t % 8) {
             val cs = if (us == 1) t + 8 else t - 8
             capH[n - 1] = b[cs]
+            h = h xor Zob.piece[b[cs] + 6][cs]
             b[cs] = 0
             resetHalf = true
         }
-        b[t] = if (pr != 0) us * pr else p
+        val np = if (pr != 0) us * pr else p
+        b[t] = np
         b[f] = 0
+        h = h xor Zob.piece[np + 6][t]
         if (type == 6) {
             kp[if (us == 1) 0 else 1] = t
             if (t - f == 2) {
-                b[t - 1] = b[t + 1]; b[t + 1] = 0
+                val rk = b[t + 1]
+                b[t - 1] = rk; b[t + 1] = 0
+                h = h xor Zob.piece[rk + 6][t + 1] xor Zob.piece[rk + 6][t - 1]
             } else if (f - t == 2) {
-                b[t + 1] = b[t - 2]; b[t - 2] = 0
+                val rk = b[t - 2]
+                b[t + 1] = rk; b[t - 2] = 0
+                h = h xor Zob.piece[rk + 6][t - 2] xor Zob.piece[rk + 6][t + 1]
             }
         }
+        val oldCastle = castle
+        val oldEp = ep
         castle = castle and CM[f] and CM[t]
         ep = if (type == 1 && abs(t - f) == 16) (f + t) / 2 else -1
+        h = h xor Zob.castle[oldCastle] xor Zob.castle[castle]
+        if (oldEp >= 0) h = h xor Zob.ep[oldEp % 8]
+        if (ep >= 0) h = h xor Zob.ep[ep % 8]
+        h = h xor Zob.side
+        hash = h
         half = if (resetHalf) 0 else half + 1
         white = !white
         plies++
@@ -238,6 +286,7 @@ class Position {
         val pr = (m shr 12) and 7
         white = !white
         plies--
+        hash = hashH[n]
         val us = if (white) 1 else -1
         val moved = b[t]
         val p = if (pr != 0) us else moved
@@ -261,6 +310,38 @@ class Position {
                 b[t - 2] = b[t + 1]; b[t + 1] = 0
             }
         }
+    }
+
+    fun makeNull() {
+        hashH[n] = hash
+        capH[n] = 0; castleH[n] = castle; epH[n] = ep; halfH[n] = half; n++
+        var h = hash
+        if (ep >= 0) h = h xor Zob.ep[ep % 8]
+        ep = -1
+        h = h xor Zob.side
+        hash = h
+        white = !white
+        plies++
+        half++
+    }
+
+    fun unmakeNull() {
+        n--
+        hash = hashH[n]
+        white = !white
+        plies--
+        castle = castleH[n]; ep = epH[n]; half = halfH[n]
+    }
+
+    /** Has the current position occurred earlier in the search path (same side to move)? */
+    fun repeated(): Boolean {
+        var i = n - 2
+        val limit = maxOf(0, n - half)
+        while (i >= limit) {
+            if (hashH[i] == hash) return true
+            i -= 2
+        }
+        return false
     }
 
     fun legalMoves(): List<Int> {
@@ -372,6 +453,7 @@ class Position {
                     if (p.b[i] == -6) { p.kp[1] = i; bk++ }
                 }
                 if (wk != 1 || bk != 1) return null
+                p.hash = p.computeHash()
                 p
             } catch (e: Exception) {
                 null

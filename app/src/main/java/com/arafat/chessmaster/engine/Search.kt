@@ -7,7 +7,10 @@ const val INF = 32000
 
 class Line(val move: Int, val score: Int, val depth: Int, val pv: List<Int>)
 
-/** Alpha-beta search (iterative deepening, quiescence, killer/history ordering, LMR). */
+/**
+ * Own engine: alpha-beta (PVS) with iterative deepening, transposition table (Zobrist),
+ * null-move pruning, late-move reductions, killer/history ordering, quiescence search.
+ */
 class Search(val pos: Position) {
     private val ev = Evaluator()
     var nodes = 0L
@@ -24,6 +27,13 @@ class Search(val pos: Position) {
     private var excluded = IntArray(0)
     private var rootBest = -1
 
+    private val ttSize = 1 shl 19
+    private val ttMask = (1 shl 19) - 1
+    private val ttKey = LongArray(1 shl 19)
+    private val ttMove = IntArray(1 shl 19)
+    private val ttScore = IntArray(1 shl 19)
+    private val ttInfo = IntArray(1 shl 19)
+
     private fun evalStm(): Int {
         val e = ev.evaluate(pos)
         return if (pos.white) e else -e
@@ -37,7 +47,32 @@ class Search(val pos: Position) {
         return stop
     }
 
-    private fun order(ply: Int, n: Int, quiet: Boolean) {
+    private fun toTT(score: Int, ply: Int): Int =
+        if (score > MATE - 100) score + ply else if (score < -MATE + 100) score - ply else score
+
+    private fun fromTT(score: Int, ply: Int): Int =
+        if (score > MATE - 100) score - ply else if (score < -MATE + 100) score + ply else score
+
+    private fun ttIndex(key: Long): Int = ((key xor (key ushr 29)).toInt()) and ttMask
+
+    private fun ttStore(key: Long, mv: Int, score: Int, depth: Int, flag: Int, ply: Int) {
+        val i = ttIndex(key)
+        ttKey[i] = key
+        ttMove[i] = mv
+        ttScore[i] = toTT(score, ply)
+        ttInfo[i] = (depth shl 2) or flag
+    }
+
+    private fun hasPieces(white: Boolean): Boolean {
+        for (x in pos.b) {
+            if (x == 0 || (x > 0) != white) continue
+            val t = abs(x)
+            if (t in 2..5) return true
+        }
+        return false
+    }
+
+    private fun order(ply: Int, n: Int, quiet: Boolean, ttMv: Int) {
         val buf = bufs[ply]
         val scr = scrs[ply]
         val side = if (pos.white) 0 else 1
@@ -50,6 +85,7 @@ class Search(val pos: Position) {
             val att = abs(pos.b[f])
             scr[i] = when {
                 ply == 0 && m == rootBest -> 1_000_000
+                ttMv != 0 && m == ttMv -> 900_000
                 victim != 0 -> 100_000 + victim * 100 - att
                 pr != 0 -> 90_000 + pr
                 !quiet -> 0
@@ -84,7 +120,7 @@ class Search(val pos: Position) {
         }
         val buf = bufs[ply]
         val n = pos.gen(buf, !inChk)
-        order(ply, n, false)
+        order(ply, n, false, 0)
         var legal = 0
         for (i in 0 until n) {
             pick(ply, i, n)
@@ -106,21 +142,51 @@ class Search(val pos: Position) {
         return alpha
     }
 
-    private fun search(depth: Int, alpha0: Int, beta: Int, ply: Int): Int {
+    private fun search(depth: Int, alpha0: Int, beta: Int, ply: Int, allowNull: Boolean): Int {
         pvLen[ply] = ply
         if (tick()) return 0
-        if (ply > 0 && (pos.half >= 100 || pos.insufficient())) return 0
+        if (ply > 0 && (pos.half >= 100 || pos.insufficient() || pos.repeated())) return 0
         if (ply >= 70) return evalStm()
         val inChk = pos.inCheck(pos.white)
         val d = if (inChk) depth + 1 else depth
         if (d <= 0) return quiesce(alpha0, beta, ply)
 
+        val isPv = beta - alpha0 > 1
+        val key = pos.hash
+        val ti = ttIndex(key)
+        var ttMv = 0
+        if (ttKey[ti] == key) {
+            ttMv = ttMove[ti]
+            if (ply > 0 && !isPv) {
+                val info = ttInfo[ti]
+                val dep = info shr 2
+                val flag = info and 3
+                if (dep >= d) {
+                    val sc = fromTT(ttScore[ti], ply)
+                    if (flag == 0) return sc
+                    if (flag == 1 && sc >= beta) return sc
+                    if (flag == 2 && sc <= alpha0) return sc
+                }
+            }
+        }
+
+        // null-move pruning
+        if (allowNull && !isPv && !inChk && d >= 3 && ply > 0 && hasPieces(pos.white) && evalStm() >= beta) {
+            val r = if (d >= 6) 3 else 2
+            pos.makeNull()
+            val sc = -search(d - 1 - r, -beta, -beta + 1, ply + 1, false)
+            pos.unmakeNull()
+            if (stop) return 0
+            if (sc >= beta) return if (sc > MATE - 100) beta else sc
+        }
+
         var alpha = alpha0
         val buf = bufs[ply]
         val n = pos.gen(buf, false)
-        order(ply, n, true)
+        order(ply, n, true, ttMv)
         var legal = 0
         var best = -INF
+        var bestMv = 0
         val side = if (pos.white) 0 else 1
         for (i in 0 until n) {
             pick(ply, i, n)
@@ -132,18 +198,24 @@ class Search(val pos: Position) {
             if (pos.moverInCheck()) { pos.unmake(m); continue }
             legal++
             val gives = pos.inCheck(pos.white)
-            val sc: Int
-            if (legal > 4 && d >= 3 && !isCap && !isPromo && !inChk && !gives) {
-                var s1 = -search(d - 2, -alpha - 1, -alpha, ply + 1)
-                if (s1 > alpha && !stop) s1 = -search(d - 1, -beta, -alpha, ply + 1)
-                sc = s1
+            var sc: Int
+            if (legal == 1) {
+                sc = -search(d - 1, -beta, -alpha, ply + 1, true)
             } else {
-                sc = -search(d - 1, -beta, -alpha, ply + 1)
+                var red = 0
+                if (legal > 4 && d >= 3 && !isCap && !isPromo && !inChk && !gives) {
+                    red = if (legal > 10 && d >= 5) 2 else 1
+                }
+                sc = -search(d - 1 - red, -alpha - 1, -alpha, ply + 1, true)
+                if (sc > alpha && (red > 0 || sc < beta)) {
+                    sc = -search(d - 1, -beta, -alpha, ply + 1, true)
+                }
             }
             pos.unmake(m)
             if (stop) return 0
             if (sc > best) {
                 best = sc
+                bestMv = m
                 if (sc > alpha) {
                     alpha = sc
                     pv[ply][ply] = m
@@ -165,6 +237,10 @@ class Search(val pos: Position) {
             }
         }
         if (legal == 0) return if (inChk) -MATE + ply else 0
+        if (!stop && ply > 0) {
+            val flag = if (best >= beta) 1 else if (best > alpha0) 0 else 2
+            ttStore(key, if (flag == 2) 0 else bestMv, best, d, flag, ply)
+        }
         return best
     }
 
@@ -176,7 +252,7 @@ class Search(val pos: Position) {
         rootBest = -1
         var best: Line? = null
         for (d in 1..maxDepth) {
-            val sc = search(d, -INF, INF, 0)
+            val sc = search(d, -INF, INF, 0, false)
             if (stop) break
             if (pvLen[0] > 0) {
                 val moves = ArrayList<Int>()
@@ -212,7 +288,7 @@ class Search(val pos: Position) {
         deadline = System.currentTimeMillis() + ms
         pos.make(m)
         if (pos.moverInCheck()) { pos.unmake(m); return null }
-        val sc = -search(depth - 1, -INF, INF, 1)
+        val sc = -search(depth - 1, -INF, INF, 1, true)
         pos.unmake(m)
         return if (stop) null else sc
     }

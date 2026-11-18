@@ -10,6 +10,8 @@ import androidx.lifecycle.viewModelScope
 import com.arafat.chessmaster.data.GameRecord
 import com.arafat.chessmaster.data.MoveRec
 import com.arafat.chessmaster.data.SavedGame
+import com.arafat.chessmaster.data.UpdateChecker
+import com.arafat.chessmaster.data.UpdateInfo
 import com.arafat.chessmaster.data.Store
 import com.arafat.chessmaster.engine.Analysis
 import com.arafat.chessmaster.engine.Analyzer
@@ -30,14 +32,37 @@ import kotlin.math.abs
 class ChessViewModel(app: Application) : AndroidViewModel(app) {
     private val store = Store(app)
     private val appCtx = app.applicationContext
-    private val sfFile = File(app.applicationInfo.nativeLibraryDir, "libstockfish.so")
-    val stockfishPacked: Boolean = sfFile.exists()
+    private val nativeDir = File(app.applicationInfo.nativeLibraryDir)
+    private val sfStd = File(nativeDir, "libstockfish.so")
+    private val sfDot = File(nativeDir, "libstockfish_dp.so")
+    val stockfishPacked: Boolean = sfStd.exists() || sfDot.exists()
 
     // navigation / settings
     var tab by mutableStateOf(0)
     var palette by mutableStateOf(store.palette)
     var level by mutableStateOf(store.level)
-    var engineName by mutableStateOf(if (sfFile.exists()) "Stockfish" else "ইনবিল্ট ইঞ্জিন")
+
+    /** 0 = Stockfish, 1 = Arafat engine */
+    var engineChoice by mutableStateOf(if (store.engine == 1 || !stockfishPacked) 1 else 0)
+    var sfVersion by mutableStateOf("")
+    var sfFailed by mutableStateOf(false)
+    val engineName: String
+        get() = when {
+            engineChoice == 1 -> "আরাফাত ইঞ্জিন"
+            sfFailed -> "আরাফাত ইঞ্জিন (Stockfish চালু হয়নি)"
+            sfVersion.isNotEmpty() -> sfVersion
+            else -> "Stockfish"
+        }
+
+    // updates
+    private val verName: String = try {
+        appCtx.packageManager.getPackageInfo(appCtx.packageName, 0).versionName ?: ""
+    } catch (e: Exception) { "" }
+    val versionText: String get() = verName
+    private val appBuild: Int = verName.substringAfterLast('.').toIntOrNull() ?: 0
+    var updateInfo by mutableStateOf<UpdateInfo?>(null)
+    var updateMsg by mutableStateOf("")
+    var updateChecking by mutableStateOf(false)
 
     // game state
     var pos by mutableStateOf(Position.start())
@@ -76,6 +101,10 @@ class ChessViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         restore()
+        if (engineChoice == 0 && stockfishPacked) {
+            viewModelScope.launch(Dispatchers.Default) { ensureSf() }
+        }
+        checkUpdate(false)
     }
 
     // ---------- persistence ----------
@@ -126,6 +155,36 @@ class ChessViewModel(app: Application) : AndroidViewModel(app) {
     fun changePalette(i: Int) {
         palette = i
         store.palette = i
+    }
+
+    fun chooseEngine(i: Int) {
+        if (i == 0 && !stockfishPacked) return
+        engineChoice = i
+        store.engine = i
+        if (i == 0) viewModelScope.launch(Dispatchers.Default) { ensureSf() }
+        if (myWhite != null) maybeAnalyze()
+    }
+
+    fun checkUpdate(manual: Boolean) {
+        if (updateChecking) return
+        updateChecking = true
+        if (manual) updateMsg = "চেক করা হচ্ছে…"
+        viewModelScope.launch {
+            val info = withContext(Dispatchers.IO) { UpdateChecker.fetchLatest() }
+            updateChecking = false
+            if (info == null) {
+                if (manual) updateMsg = "ইন্টারনেট বা সার্ভারে সমস্যা — পরে চেষ্টা করুন"
+            } else if (appBuild > 0 && info.build > appBuild) {
+                updateInfo = info
+                if (manual) updateMsg = "নতুন ভার্সন পাওয়া গেছে: ${info.tag}"
+            } else if (manual) {
+                updateMsg = "আপনি সর্বশেষ ভার্সনে আছেন ✅"
+            }
+        }
+    }
+
+    fun dismissUpdate() {
+        updateInfo = null
     }
 
     fun setLevelAndRefresh(l: Int) {
@@ -225,22 +284,37 @@ class ChessViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------- engine ----------
 
+    private fun cpuHasDotprod(): Boolean = try {
+        File("/proc/cpuinfo").readText().contains("asimddp")
+    } catch (e: Exception) { false }
+
+    @Synchronized
     private fun ensureSf(): StockfishEngine? {
-        if (sf != null) return sf
+        val cur = sf
+        if (cur != null) {
+            if (cur.isAlive()) return cur
+            sf = null
+            sfTried = false
+        }
         if (sfTried) return null
         sfTried = true
-        if (!sfFile.exists()) return null
-        val e = StockfishEngine(sfFile.absolutePath)
+        val bins = ArrayList<File>()
+        if (sfDot.exists() && cpuHasDotprod()) bins.add(sfDot)
+        if (sfStd.exists()) bins.add(sfStd)
+        if (bins.isEmpty()) return null
         val cores = Runtime.getRuntime().availableProcessors()
         val threads = maxOf(1, minOf(4, cores / 2))
-        val ok = e.start(threads, if (level >= 3) 128 else 64)
-        if (ok) {
-            sf = e
-            engineName = e.version
-        } else {
-            engineName = "ইনবিল্ট ইঞ্জিন (Stockfish চালু হয়নি)"
+        for (bin in bins) {
+            val e = StockfishEngine(bin.absolutePath)
+            if (e.start(threads, if (level >= 3) 128 else 64)) {
+                sf = e
+                sfVersion = e.version
+                sfFailed = false
+                return e
+            }
         }
-        return sf
+        sfFailed = true
+        return null
     }
 
     private fun maybeAnalyze() {
@@ -259,12 +333,13 @@ class ChessViewModel(app: Application) : AndroidViewModel(app) {
         val prev = if (snaps.isNotEmpty()) snaps[snaps.size - 1] else null
         val ms = when (level) { 0 -> 1500L; 1 -> 4000L; 2 -> 9000L; else -> 20000L }
         val plies = snaps.size
+        val useSf = engineChoice == 0
         thinking = true
         analysis = null
         liveDepth = 0
         job = viewModelScope.launch {
             val a = withContext(Dispatchers.Default) {
-                Analyzer.analyze(p, last, prev, ms, plies, ensureSf(), { !isActive }, { d, _ -> liveDepth = d })
+                Analyzer.analyze(p, last, prev, ms, plies, if (useSf) ensureSf() else null, { !isActive }, { d, _ -> liveDepth = d })
             }
             analysis = a
             thinking = false

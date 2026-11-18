@@ -1,4 +1,6 @@
-# Arafat Chess Master v2
+# Arafat Chess Master
 
-Kotlin + Jetpack Compose দাবা সহকারী। GitHub Actions বিল্ডের সময় অফিসিয়াল Stockfish কম্পাইল হয়ে APK-র ভেতরে বসে।
-Stockfish বিল্ড ব্যর্থ হলে অ্যাপ ইনবিল্ট ইঞ্জিনে চলে (Settings → ইঞ্জিন-এ দেখা যায়)।
+Kotlin + Jetpack Compose দাবা সহকারী।
+- GitHub Actions প্রতি বিল্ডে অফিসিয়াল Stockfish (সর্বশেষ সম্ভব ভার্সন) কম্পাইল করে APK-তে বসায়।
+- প্রতি সোমবার নতুন Stockfish এলে স্বয়ংক্রিয়ভাবে নতুন Release তৈরি হয়; অ্যাপ নতুন ভার্সনের খবর দেয়।
+- Developer: Yasin Arafat

@@ -441,7 +441,7 @@ object Analyzer {
     ): Analysis {
         var lines: List<Line> = emptyList()
         var search: Search? = null
-        var engineName = "ইনবিল্ট ইঞ্জিন"
+        var engineName = "আরাফাত ইঞ্জিন"
         if (sf != null && sf.isAlive()) {
             val el = sf.analyze(pos.toFen(), totalMs, 3, null, cancelled, onProgress)
             lines = el.mapNotNull { toLine(pos, it) }
@@ -451,8 +451,8 @@ object Analyzer {
             val s = Search(pos.copy())
             s.cancelCheck = cancelled
             search = s
-            lines = s.multiPv(3, minOf(totalMs, 15000L), 14)
-            engineName = "ইনবিল্ট ইঞ্জিন"
+            lines = s.multiPv(3, totalMs, 24)
+            engineName = "আরাফাত ইঞ্জিন"
         }
         val base = lines.map { l ->
             Candidate(

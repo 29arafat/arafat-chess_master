@@ -81,6 +81,41 @@ class Evaluator {
     private val wMax = IntArray(8)
     private val bMin = IntArray(8)
 
+    private fun mobility(b: IntArray, s: Int, t: Int, white: Boolean): Int {
+        val r = s / 8
+        val c = s % 8
+        var cnt = 0
+        if (t == 2) {
+            for (i in 0 until 8) {
+                val nr = r + KDR[i]
+                val nc = c + KDC[i]
+                if (nr in 0..7 && nc in 0..7) {
+                    val x = b[nr * 8 + nc]
+                    if (x == 0 || (x > 0) != white) cnt++
+                }
+            }
+        } else {
+            val lo = if (t == 3) 4 else 0
+            val hi = if (t == 4) 4 else 8
+            for (d in lo until hi) {
+                var nr = r + DR[d]
+                var nc = c + DC[d]
+                while (nr in 0..7 && nc in 0..7) {
+                    val x = b[nr * 8 + nc]
+                    if (x == 0) {
+                        cnt++
+                    } else {
+                        if ((x > 0) != white) cnt++
+                        break
+                    }
+                    nr += DR[d]
+                    nc += DC[d]
+                }
+            }
+        }
+        return cnt
+    }
+
     fun evaluate(p: Position): Int {
         val b = p.b
         Arrays.fill(wCnt, 0)
@@ -102,20 +137,20 @@ class Evaluator {
             if (x > 0) {
                 when (x) {
                     1 -> { score += 100 + PAWN[s]; wCnt[c]++; if (r > wMax[c]) wMax[c] = r }
-                    2 -> { score += 320 + KN[s]; npm += 320 }
-                    3 -> { score += 330 + BI[s]; npm += 330; wBis++ }
-                    4 -> { score += 500 + RO[s]; npm += 500 }
-                    5 -> { score += 900 + QU[s]; npm += 900; queens++ }
+                    2 -> { score += 320 + KN[s] + 4 * mobility(b, s, 2, true); npm += 320 }
+                    3 -> { score += 330 + BI[s] + 4 * mobility(b, s, 3, true); npm += 330; wBis++ }
+                    4 -> { score += 500 + RO[s] + 2 * mobility(b, s, 4, true); npm += 500 }
+                    5 -> { score += 900 + QU[s] + mobility(b, s, 5, true); npm += 900; queens++ }
                     6 -> wk = s
                 }
             } else {
                 val m = s xor 56
                 when (-x) {
                     1 -> { score -= 100 + PAWN[m]; bCnt[c]++; if (r < bMin[c]) bMin[c] = r }
-                    2 -> { score -= 320 + KN[m]; npm += 320 }
-                    3 -> { score -= 330 + BI[m]; npm += 330; bBis++ }
-                    4 -> { score -= 500 + RO[m]; npm += 500 }
-                    5 -> { score -= 900 + QU[m]; npm += 900; queens++ }
+                    2 -> { score -= 320 + KN[m] + 4 * mobility(b, s, 2, false); npm += 320 }
+                    3 -> { score -= 330 + BI[m] + 4 * mobility(b, s, 3, false); npm += 330; bBis++ }
+                    4 -> { score -= 500 + RO[m] + 2 * mobility(b, s, 4, false); npm += 500 }
+                    5 -> { score -= 900 + QU[m] + mobility(b, s, 5, false); npm += 900; queens++ }
                     6 -> bk = s
                 }
             }

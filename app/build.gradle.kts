@@ -3,6 +3,9 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// CI passes -PbuildNumber=<github run number>; local builds use 0
+val buildNum: Int = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 0
+
 android {
     namespace = "com.arafat.chessmaster"
     compileSdk = 34
@@ -11,16 +14,32 @@ android {
         applicationId = "com.arafat.chessmaster"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "2.0"
+        versionCode = 100 + buildNum
+        versionName = "2.$buildNum"
         ndk {
             abiFilters += "arm64-v8a"
         }
     }
 
+    signingConfigs {
+        val ksPath = System.getenv("KEYSTORE_PATH")
+        if (ksPath != null && File(ksPath).exists()) {
+            create("ci") {
+                storeFile = File(ksPath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfigs.findByName("ci")?.let { signingConfig = it }
+        }
         release {
             isMinifyEnabled = false
+            signingConfigs.findByName("ci")?.let { signingConfig = it }
         }
     }
 
@@ -40,7 +59,7 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
-            keepDebugSymbols += "**/libstockfish.so"
+            keepDebugSymbols += "**/libstockfish*.so"
         }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
