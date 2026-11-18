@@ -17,12 +17,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -39,6 +43,18 @@ private fun dateText(id: Long): String =
 private fun resultColor(r: String): Color {
     val p = LocalPalette.current
     return when (r) { "W" -> p.good; "L" -> p.bad; else -> p.warn }
+}
+
+/** Whole game as plain text: "1. e4 e5 2. Nf3 Nc6 ..." */
+private fun gameMovesText(rec: GameRecord): String {
+    val sb = StringBuilder()
+    var num = 1
+    for ((i, r) in rec.moves.withIndex()) {
+        if (r.whiteMoved) sb.append("$num. ") else if (i == 0) sb.append("$num... ")
+        sb.append(r.san).append(' ')
+        if (!r.whiteMoved) num++
+    }
+    return sb.toString().trim()
 }
 
 private fun resultLabel(r: String): String = when (r) { "W" -> "🏆 জয়"; "L" -> "❌ হার"; else -> "🤝 ড্র" }
@@ -123,6 +139,8 @@ fun ReplayScreen(vm: ChessViewModel, rec: GameRecord) {
     val idx = vm.replayIndex.coerceIn(0, rec.moves.size)
     val state = remember(rec, idx) { replayTo(rec, idx) }
     val col = resultColor(rec.result)
+    val clipboard = LocalClipboardManager.current
+    val ctx = LocalContext.current
 
     Column(
         Modifier
@@ -175,6 +193,10 @@ fun ReplayScreen(vm: ChessViewModel, rec: GameRecord) {
         }
 
         Panel("📜 সব চাল (ট্যাপ করে দেখুন)", p.sub) {
+            TextButton(onClick = {
+                clipboard.setText(AnnotatedString(gameMovesText(rec)))
+                Toast.makeText(ctx, "সব চাল কপি হয়েছে ✅", Toast.LENGTH_SHORT).show()
+            }) { Text("📋 সব চাল কপি করুন") }
             var num = 1
             for ((i, r) in rec.moves.withIndex()) {
                 val label = (if (r.whiteMoved) "$num." else "$num…") + " ${r.san}"

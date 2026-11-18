@@ -407,7 +407,7 @@ class Position {
     companion object {
         const val START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
-        fun start(): Position = fromFen(START_FEN)!!
+        fun start(): Position = fromFen(START_FEN) ?: Position()
 
         fun fromFen(fen: String): Position? {
             return try {

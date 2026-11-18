@@ -100,7 +100,12 @@ class ChessViewModel(app: Application) : AndroidViewModel(app) {
     val canUndo: Boolean get() = snaps.isNotEmpty() && !recorded
 
     init {
-        restore()
+        try {
+            restore()
+        } catch (e: Throwable) {
+            // corrupted / incompatible saved game: drop it instead of crashing on every launch
+            resetAfterBadRestore()
+        }
         if (engineChoice == 0 && stockfishPacked) {
             viewModelScope.launch(Dispatchers.Default) { ensureSf() }
         }
@@ -116,6 +121,18 @@ class ChessViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         store.saveCurrent(SavedGame(gameId, startFen, w, moves.toList(), recorded))
+    }
+
+    private fun resetAfterBadRestore() {
+        try { store.saveCurrent(null) } catch (e: Throwable) { }
+        myWhite = null
+        moves.clear(); snaps.clear(); lastMoves.clear(); keys.clear()
+        pos = Position.start()
+        lastMove = -1
+        status = null
+        analysis = null
+        thinking = false
+        recorded = false
     }
 
     private fun restore() {
@@ -290,6 +307,15 @@ class ChessViewModel(app: Application) : AndroidViewModel(app) {
 
     @Synchronized
     private fun ensureSf(): StockfishEngine? {
+        return try {
+            ensureSfUnsafe()
+        } catch (e: Throwable) {
+            sfFailed = true
+            null
+        }
+    }
+
+    private fun ensureSfUnsafe(): StockfishEngine? {
         val cur = sf
         if (cur != null) {
             if (cur.isAlive()) return cur
@@ -338,8 +364,14 @@ class ChessViewModel(app: Application) : AndroidViewModel(app) {
         analysis = null
         liveDepth = 0
         job = viewModelScope.launch {
-            val a = withContext(Dispatchers.Default) {
-                Analyzer.analyze(p, last, prev, ms, plies, if (useSf) ensureSf() else null, { !isActive }, { d, _ -> liveDepth = d })
+            val a = try {
+                withContext(Dispatchers.Default) {
+                    Analyzer.analyze(p, last, prev, ms, plies, if (useSf) ensureSf() else null, { !isActive }, { d, _ -> liveDepth = d })
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                null
             }
             analysis = a
             thinking = false
