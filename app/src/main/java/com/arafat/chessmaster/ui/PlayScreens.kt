@@ -94,13 +94,20 @@ fun StartScreen(vm: ChessViewModel) {
             SideCard("♔", "সাদা মোড", "আমি প্রথম চাল দেব", true, Modifier.weight(1f)) { vm.start(true) }
             SideCard("♚", "কালো মোড", "শত্রু আগে চাল দেবে", false, Modifier.weight(1f)) { vm.start(false) }
         }
+        Spacer(Modifier.height(12.dp))
+        Button(
+            onClick = { vm.openSetup() },
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = p.surface2, contentColor = p.text)
+        ) { Text("🛠 মডিফাই ম্যাচ — নিজের মতো বোর্ড সাজান", fontWeight = FontWeight.SemiBold) }
         Spacer(Modifier.height(22.dp))
-        Text("চিন্তার স্তর", color = p.text, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+        Text("ডিফল্ট চিন্তার স্তর", color = p.text, fontWeight = FontWeight.Bold, fontSize = 15.sp)
         Spacer(Modifier.height(8.dp))
-        LevelPills(vm.level) { vm.setLevelAndRefresh(it) }
+        LevelPills(vm.defLevel) { vm.setDefaultLevel(it) }
         Spacer(Modifier.height(6.dp))
         Text(
-            "প্রতি চালে ভাবার সময়: ${LEVEL_TIMES[vm.level.coerceIn(0, 3)]}",
+            "প্রতি চালে ভাবার সময়: ${LEVEL_TIMES[vm.defLevel.coerceIn(0, 3)]}",
             color = p.sub, fontSize = 12.sp
         )
         Spacer(Modifier.height(18.dp))
@@ -223,7 +230,12 @@ fun GameScreen(vm: ChessViewModel) {
             TextButton(onClick = { vm.fenDialog = true }, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("📋 FEN") }
             TextButton(onClick = { vm.newGameClicked() }, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("🏁 নতুন গেম") }
         }
-        LevelPills(vm.level) { vm.setLevelAndRefresh(it) }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Pill("🐟 Stockfish", vm.gEngine == 0, Modifier.weight(1f)) { vm.setGameEngine(0) }
+            Pill("♞ আরাফাত ইঞ্জিন", vm.gEngine == 1, Modifier.weight(1f)) { vm.setGameEngine(1) }
+        }
+        Spacer(Modifier.height(6.dp))
+        LevelPills(vm.gLevel) { vm.setGameLevel(it) }
         Spacer(Modifier.height(8.dp))
 
         if (vm.status == null && myTurn) {

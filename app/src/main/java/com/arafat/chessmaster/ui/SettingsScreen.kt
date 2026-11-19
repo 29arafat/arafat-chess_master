@@ -92,17 +92,17 @@ fun SettingsScreen(vm: ChessViewModel) {
                 if (vm.stockfishPacked) {
                     if (vm.sfFailed) "এই ফোনে চালু করা যায়নি" else "সংস্করণ: " + (if (vm.sfVersion.isNotEmpty()) vm.sfVersion else "লোড হচ্ছে…")
                 } else "এই বিল্ডে Stockfish নেই",
-                vm.engineChoice == 0,
+                vm.defEngine == 0,
                 vm.stockfishPacked
-            ) { vm.chooseEngine(0) }
+            ) { vm.setDefaultEngine(0) }
             EngineRow(
                 "♞ আরাফাত ইঞ্জিন (নিজস্ব)",
                 "আমাদের তৈরি ইঞ্জিন — ট্রান্সপজিশন টেবিল, নাল-মুভ, মোবিলিটি মূল্যায়ন সহ",
-                vm.engineChoice == 1,
+                vm.defEngine == 1,
                 true
-            ) { vm.chooseEngine(1) }
+            ) { vm.setDefaultEngine(1) }
             Spacer(Modifier.height(4.dp))
-            Text("এখন চলছে: ${vm.engineName}", color = p.sub, fontSize = 12.sp)
+            Text("ডিফল্ট ইঞ্জিন: নতুন ম্যাচ এটি দিয়ে শুরু হয়। এখন চলছে: ${vm.engineName}", color = p.sub, fontSize = 12.sp)
         }
 
         Panel("🎨 থিম", p.primary) {
@@ -129,9 +129,10 @@ fun SettingsScreen(vm: ChessViewModel) {
         }
 
         Panel("🧠 ডিফল্ট চিন্তার স্তর", p.gold) {
-            LevelPills(vm.level) { vm.setLevelAndRefresh(it) }
+            LevelPills(vm.defLevel) { vm.setDefaultLevel(it) }
             Spacer(Modifier.height(6.dp))
-            Text("প্রতি চালে ভাবার সময়: ${LEVEL_TIMES[vm.level.coerceIn(0, 3)]}", color = p.sub, fontSize = 12.sp)
+            Text("প্রতি চালে ভাবার সময়: ${LEVEL_TIMES[vm.defLevel.coerceIn(0, 3)]}", color = p.sub, fontSize = 12.sp)
+            Text("নতুন ম্যাচ এই ডিফল্ট দিয়ে শুরু হয়। খেলার মাঝেও ইঞ্জিন ও লেভেল বদলানো যায়।", color = p.sub, fontSize = 12.sp)
             Text("স্তর যত বেশি, বিশ্লেষণ তত গভীর (ব্যাটারি ও সময়ও বেশি লাগে)।", color = p.sub, fontSize = 12.sp)
         }
 

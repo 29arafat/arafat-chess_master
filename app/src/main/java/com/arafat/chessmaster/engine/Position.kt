@@ -407,7 +407,32 @@ class Position {
     companion object {
         const val START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
-        fun start(): Position = fromFen(START_FEN) ?: Position()
+        fun start(): Position = fromFen(START_FEN)!!
+
+        fun fromBoard(board: IntArray, whiteToMove: Boolean, castleRights: Int): Position? {
+            val p = Position()
+            System.arraycopy(board, 0, p.b, 0, 64)
+            var wk = 0
+            var bk = 0
+            for (i in 0 until 64) {
+                if (p.b[i] == 6) { p.kp[0] = i; wk++ }
+                if (p.b[i] == -6) { p.kp[1] = i; bk++ }
+            }
+            if (wk != 1 || bk != 1) return null
+            p.white = whiteToMove
+            var cr = castleRights
+            if (p.b[60] != 6) cr = cr and 3.inv()
+            if (p.b[63] != 4) cr = cr and 1.inv()
+            if (p.b[56] != 4) cr = cr and 2.inv()
+            if (p.b[4] != -6) cr = cr and 12.inv()
+            if (p.b[7] != -4) cr = cr and 4.inv()
+            if (p.b[0] != -4) cr = cr and 8.inv()
+            p.castle = cr
+            p.ep = -1
+            p.half = 0
+            p.hash = p.computeHash()
+            return p
+        }
 
         fun fromFen(fen: String): Position? {
             return try {

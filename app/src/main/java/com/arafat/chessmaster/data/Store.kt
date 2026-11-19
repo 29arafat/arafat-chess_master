@@ -6,6 +6,9 @@ import com.arafat.chessmaster.engine.uciToMove
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 data class MoveRec(
     val uci: String,
@@ -20,7 +23,9 @@ data class SavedGame(
     val startFen: String,
     val myWhite: Boolean,
     val moves: List<MoveRec>,
-    val recorded: Boolean
+    val recorded: Boolean,
+    val engine: Int = 0,
+    val level: Int = 1
 )
 
 /** result: "W" (জয়), "L" (হার), "D" (ড্র) */
@@ -96,6 +101,8 @@ class Store(ctx: Context) {
         o.put("fen", g.startFen)
         o.put("white", g.myWhite)
         o.put("rec", g.recorded)
+        o.put("eng", g.engine)
+        o.put("lvl", g.level)
         o.put("moves", movesToJson(g.moves))
         prefs.edit().putString("current", o.toString()).apply()
     }
@@ -104,7 +111,7 @@ class Store(ctx: Context) {
         val s = prefs.getString("current", null) ?: return null
         return try {
             val o = JSONObject(s)
-            SavedGame(o.getLong("id"), o.getString("fen"), o.getBoolean("white"), jsonToMoves(o.getJSONArray("moves")), o.optBoolean("rec", false))
+            SavedGame(o.getLong("id"), o.getString("fen"), o.getBoolean("white"), jsonToMoves(o.getJSONArray("moves")), o.optBoolean("rec", false), o.optInt("eng", 0), o.optInt("lvl", 1))
         } catch (e: Exception) {
             null
         }
@@ -141,4 +148,38 @@ class Store(ctx: Context) {
         } catch (e: Exception) {
         }
     }
+}
+
+/** Whole game as PGN text (can be pasted into Lichess / Chess.com analysis). */
+fun pgnText(rec: GameRecord): String {
+    val res = when (rec.result) {
+        "W" -> if (rec.myWhite) "1-0" else "0-1"
+        "L" -> if (rec.myWhite) "0-1" else "1-0"
+        else -> "1/2-1/2"
+    }
+    val date = try {
+        SimpleDateFormat("yyyy.MM.dd", Locale.US).format(Date(rec.id))
+    } catch (e: Exception) { "????.??.??" }
+    val me = "Me"
+    val opp = "Opponent"
+    val sb = StringBuilder()
+    sb.append("[Event \"Arafat Chess Master\"]\n")
+    sb.append("[Site \"Mobile\"]\n")
+    sb.append("[Date \"").append(date).append("\"]\n")
+    sb.append("[White \"").append(if (rec.myWhite) me else opp).append("\"]\n")
+    sb.append("[Black \"").append(if (rec.myWhite) opp else me).append("\"]\n")
+    sb.append("[Result \"").append(res).append("\"]\n")
+    if (rec.startFen != Position.START_FEN) {
+        sb.append("[SetUp \"1\"]\n")
+        sb.append("[FEN \"").append(rec.startFen).append("\"]\n")
+    }
+    sb.append("\n")
+    var num = 1
+    for ((i, r) in rec.moves.withIndex()) {
+        if (r.whiteMoved) sb.append(num).append(". ") else if (i == 0) sb.append(num).append("... ")
+        sb.append(r.san).append(' ')
+        if (!r.whiteMoved) num++
+    }
+    sb.append(res)
+    return sb.toString()
 }

@@ -1,5 +1,6 @@
 package com.arafat.chessmaster.ui
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,9 +16,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -31,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arafat.chessmaster.data.GameRecord
+import com.arafat.chessmaster.data.pgnText
 import com.arafat.chessmaster.data.replayTo
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -45,23 +48,13 @@ private fun resultColor(r: String): Color {
     return when (r) { "W" -> p.good; "L" -> p.bad; else -> p.warn }
 }
 
-/** Whole game as plain text: "1. e4 e5 2. Nf3 Nc6 ..." */
-private fun gameMovesText(rec: GameRecord): String {
-    val sb = StringBuilder()
-    var num = 1
-    for ((i, r) in rec.moves.withIndex()) {
-        if (r.whiteMoved) sb.append("$num. ") else if (i == 0) sb.append("$num... ")
-        sb.append(r.san).append(' ')
-        if (!r.whiteMoved) num++
-    }
-    return sb.toString().trim()
-}
-
 private fun resultLabel(r: String): String = when (r) { "W" -> "🏆 জয়"; "L" -> "❌ হার"; else -> "🤝 ড্র" }
 
 @Composable
 fun HistoryScreen(vm: ChessViewModel) {
     val p = LocalPalette.current
+    val ctx = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     val list = vm.history
     val wins = list.count { it.result == "W" }
     val losses = list.count { it.result == "L" }
@@ -126,6 +119,17 @@ fun HistoryScreen(vm: ChessViewModel) {
                         color = p.sub, fontSize = 12.sp, maxLines = 1
                     )
                 }
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(p.surface2)
+                        .clickable {
+                            clipboard.setText(AnnotatedString(pgnText(g)))
+                            Toast.makeText(ctx, "কপি হয়েছে ✅", Toast.LENGTH_SHORT).show()
+                        }
+                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                ) { Text("📋", fontSize = 16.sp) }
+                Spacer(Modifier.width(6.dp))
                 Text("›", color = p.sub, fontSize = 22.sp)
             }
         }
@@ -136,11 +140,11 @@ fun HistoryScreen(vm: ChessViewModel) {
 @Composable
 fun ReplayScreen(vm: ChessViewModel, rec: GameRecord) {
     val p = LocalPalette.current
+    val ctx = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     val idx = vm.replayIndex.coerceIn(0, rec.moves.size)
     val state = remember(rec, idx) { replayTo(rec, idx) }
     val col = resultColor(rec.result)
-    val clipboard = LocalClipboardManager.current
-    val ctx = LocalContext.current
 
     Column(
         Modifier
@@ -176,6 +180,17 @@ fun ReplayScreen(vm: ChessViewModel, rec: GameRecord) {
             TextButton(onClick = { vm.replayIndex = rec.moves.size }) { Text("⏭") }
         }
 
+        Button(
+            onClick = {
+                clipboard.setText(AnnotatedString(pgnText(rec)))
+                Toast.makeText(ctx, "কপি হয়েছে ✅", Toast.LENGTH_SHORT).show()
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = p.primary, contentColor = p.onPrimary)
+        ) { Text("📋 সব চাল কপি (PGN)", fontWeight = FontWeight.Bold) }
+        Spacer(Modifier.height(6.dp))
+
         if (idx > 0) {
             val m = rec.moves[idx - 1]
             Panel(
@@ -193,10 +208,6 @@ fun ReplayScreen(vm: ChessViewModel, rec: GameRecord) {
         }
 
         Panel("📜 সব চাল (ট্যাপ করে দেখুন)", p.sub) {
-            TextButton(onClick = {
-                clipboard.setText(AnnotatedString(gameMovesText(rec)))
-                Toast.makeText(ctx, "সব চাল কপি হয়েছে ✅", Toast.LENGTH_SHORT).show()
-            }) { Text("📋 সব চাল কপি করুন") }
             var num = 1
             for ((i, r) in rec.moves.withIndex()) {
                 val label = (if (r.whiteMoved) "$num." else "$num…") + " ${r.san}"

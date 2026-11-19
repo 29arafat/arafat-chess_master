@@ -30,9 +30,11 @@ fun App(vm: ChessViewModel) {
             Column(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     val g = vm.viewGame
-                    BackHandler(enabled = g != null) { vm.closeGame() }
+                    BackHandler(enabled = g != null || vm.setupStep > 0) {
+                        if (vm.setupStep > 0) vm.setupBack() else vm.closeGame()
+                    }
                     when (vm.tab) {
-                        0 -> if (vm.myWhite == null) StartScreen(vm) else GameScreen(vm)
+                        0 -> if (vm.setupStep > 0) SetupScreen(vm) else if (vm.myWhite == null) StartScreen(vm) else GameScreen(vm)
                         1 -> if (g != null) ReplayScreen(vm, g) else HistoryScreen(vm)
                         else -> SettingsScreen(vm)
                     }
